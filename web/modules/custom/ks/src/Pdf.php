@@ -234,8 +234,19 @@ class Pdf
         return null;
     }
 
+    private static function isGoogleDriveEnabled(): bool
+    {
+        $value = strtolower((string) getenv('KS_GOOGLE_DRIVE_ENABLED'));
+
+        return !in_array($value, ['0', 'false', 'off', 'no'], true);
+    }
+
     public static function processFile($file, $webform_id, $matricula = null, $year = null)
     {
+        if (!static::isGoogleDriveEnabled()) {
+            return null;
+        }
+
         $year = is_null($year) ? date('Y') : $year;
 
         $folder = null;
