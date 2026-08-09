@@ -1,0 +1,68 @@
+administer ks configuration:
+  title: 'Administer ks configuration'
+  description: 'Optional description.'
+  restrict access: true
+
+koe alta contrato:
+  title: 'Alta de contratos Koe'
+  description: 'Permiso para el alta y legalización de contratos Koe'
+  restrict access: false
+  
+koe formatos verificador:
+  title: 'Acceso a formatos de verificación'
+  description: 'Permiso para acceder a los formatos de verificación'
+  restrict access: false
+
+koe reporte:
+  title: 'Acceso a Reporte Koe'
+  description: 'Permiso para acceder al Reporte de contratos Koe'
+  restrict access: false
+
+koe supervisor:
+  title: 'Acceso a Reporte Supervidor Koe'
+  description: 'Permiso para acceder al Reporte Supervisor Koe'
+  restrict access: false
+
+administer contrato:
+  title: 'Administer contrato settings'
+  restrict access: true
+  
+koe contrato extender:
+  title: 'Koe Contrato Extender'
+  description: 'Permiso para extender el tiempo límite de aceptación de un contrato'
+  restrict access: false
+
+koe contrato editar:
+  title: 'Koe Contrato Editar'
+  description: 'Permiso para editar un contrato propio'
+  restrict access: false
+
+koe contrato legalizar:
+  title: 'Koe Contrato Legalizar'
+  description: 'Permiso para legalizar un contrato propio'
+  restrict access: false
+
+koe contrato cancelar:
+  title: 'Koe Contrato Cancelar'
+  description: 'Permiso para cancelar un contrato legalizado y habilitar su edición con un nuevo folio'
+  restrict access: false
+
+koe contrato revisar:
+  title: 'Koe Contrato Revisar'
+  description: 'Permiso para poner un contrato en revisión con ejecutivo'
+  restrict access: false
+administer filial:
+  title: 'Administer filial settings'
+  restrict access: true
+delete filial:
+  title: Delete filial
+create filial:
+  title: Create filial
+view filial:
+  title: View filial
+edit filial:
+  title: Edit filial
+
+administer action:
+  title: 'Administer action settings'
+  restrict access: true

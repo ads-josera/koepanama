@@ -1,0 +1,81 @@
+From 8448da5af10b22927a6998547152bab6548604a4 Mon Sep 17 00:00:00 2001
+From: Saurabh Vijayvargiya <saurabhvv0808@gmail.com>
+Date: Wed, 26 Mar 2025 18:07:40 +0530
+Subject: [PATCH] Issue #3502697: Issue with Webform Card and International
+ Telephone Input: Form Breaks with Enhanced Phone Number Support Enabled
+
+---
+ modules/webform_cards/js/webform_cards.js | 46 ++++++++++++-----------
+ 1 file changed, 24 insertions(+), 22 deletions(-)
+
+diff --git a/modules/webform_cards/js/webform_cards.js b/modules/webform_cards/js/webform_cards.js
+index 787e42c29e..1238653e7a 100644
+--- a/modules/webform_cards/js/webform_cards.js
++++ b/modules/webform_cards/js/webform_cards.js
+@@ -77,7 +77,7 @@
+ 
+         // Server-side validation errors.
+         // @see \Drupal\Core\Render\Element\RenderElement::setAttributes
+-        var $invalidCards = $allCards.filter(':has(.form-item--error-message)');
++        var $invalidCards = $allCards.filter(':has(.form-item--error-message):visible');
+         if ($invalidCards.length) {
+           // Hide progress.
+           $form.find('.webform-progress').hide();
+@@ -677,31 +677,33 @@
+          *   The event triggered.
+          */
+         function nextButtonClickEventHandler(event) {
+-          var validator = $form.validate(drupalSettings.cvJqueryValidateOptions);
+-          if (!$form.valid()) {
+-            // Focus first invalid input.
+-            validator.focusInvalid();
+-            // Shake the invalid card.
+-            var $activeCard = $allCards.filter('.webform-card--active');
++          event.preventDefault();
++
++          // Get the current active card
++          var $activeCard = $allCards.filter('.webform-card--active');
++
++          // Check for actual validation errors in the current card
++          var $errorElements = $activeCard.find('.form-item--error-message:visible, .error:visible');
++
++          // If there are visible error messages, prevent navigation
++          if ($errorElements.length > 0) {
++            // Shake the card and prevent navigation
+             shake($activeCard);
++            return false;
++          }
++
++          // Get next visible card (not "display: none").
++          var $nextCard = $activeCard.nextAll('.webform-card:not([style*="display: none"])').first();
++          if ($nextCard.length) {
++            setActiveCard($nextCard);
++            hideAutoForwardNextButton();
++          }
++          else if ($previewButton.length) {
++            $previewButton.trigger('click');
+           }
+           else {
+-            // Get next visible card (not "display: none").
+-            var $nextCard = $allCards.filter('.webform-card--active')
+-              .nextAll('.webform-card:not([style*="display: none"])')
+-              .first();
+-            if ($nextCard.length) {
+-              setActiveCard($nextCard);
+-            }
+-            else if ($previewButton.length) {
+-              $previewButton.trigger('click');
+-            }
+-            else {
+-              $submitButton.trigger('click');
+-            }
++            $submitButton.trigger('click');
+           }
+-          // Prevent the button's default behavior.
+-          event.preventDefault();
+         }
+ 
+         /**
+-- 
+GitLab
+

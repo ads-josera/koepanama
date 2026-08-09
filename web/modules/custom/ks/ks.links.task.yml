@@ -1,0 +1,60 @@
+entity.contrato.settings:
+  title: 'Settings'
+  route_name: entity.contrato.settings
+  base_route: entity.contrato.settings
+entity.contrato.view:
+  title: 'View'
+  route_name: entity.contrato.canonical
+  base_route: entity.contrato.canonical
+entity.contrato.edit_form:
+  title: 'Edit'
+  route_name: entity.contrato.edit_form
+  base_route: entity.contrato.canonical
+entity.contrato.delete_form:
+  title: 'Delete'
+  route_name: entity.contrato.delete_form
+  base_route: entity.contrato.canonical
+  weight: 10
+entity.contrato.collection:
+  title: 'Contratos'
+  route_name: entity.contrato.collection
+  base_route: system.admin_content
+  weight: 10
+ks.pdf_form:
+  route_name: ks.pdf_form
+  base_route: entity.webform.canonical
+  title: 'Pdf'
+  weight: 40
+
+entity.filial.settings:
+  title: 'Settings'
+  route_name: entity.filial.settings
+  base_route: entity.filial.settings
+entity.filial.view:
+  title: 'View'
+  route_name: entity.filial.canonical
+  base_route: entity.filial.canonical
+entity.filial.edit_form:
+  title: 'Edit'
+  route_name: entity.filial.edit_form
+  base_route: entity.filial.canonical
+entity.filial.delete_form:
+  title: 'Delete'
+  route_name: entity.filial.delete_form
+  base_route: entity.filial.canonical
+  weight: 10
+entity.filial.collection:
+  title: 'Filials'
+  route_name: entity.filial.collection
+  base_route: system.admin_content
+  weight: 10
+
+entity.action.settings:
+  title: 'Settings'
+  route_name: entity.action.settings
+  base_route: entity.action.settings
+entity.action.collection:
+  title: 'Actions'
+  route_name: entity.action.collection
+  base_route: system.admin_content
+  weight: 10

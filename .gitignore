@@ -1,0 +1,42 @@
+# Drupal environment-specific configuration and user uploads.
+/web/sites/default/settings.php
+/web/sites/default/settings.local.php
+/web/sites/default/settings.ddev.php
+/web/sites/default/services.yml
+/web/sites/default/files/
+
+# Local DDEV secrets.
+/.ddev/traefik/certs/
+
+# Backups, database dumps, and local artifacts.
+/backup/
+*.tar
+composer.phar
+composer.bkp_lock
+error_log
+php.ini
+*.sql
+*.sql.gz
+*.zip
+*.tar.gz
+logs/
+backups/
+dumps/
+/web/php_errorlog
+/web/.htaccess_bkp
+/web/test.php
+/.user.ini
+
+# Local tooling files.
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Dependencies restored by `composer install`.
+/vendor/
+/web/core/
+/web/libraries/
+/web/modules/contrib/
+/web/profiles/contrib/
+/web/themes/contrib/

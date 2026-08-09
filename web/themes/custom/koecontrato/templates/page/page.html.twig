@@ -1,0 +1,76 @@
+<div class="layout has-sidebar fixed-sidebar fixed-header">
+  <aside id="sidebar" class="sidebar break-point-lg has-bg-image">
+
+    <div class="image-wrapper">
+      <img src="{{ base_path ~ directory }}/images/bg-sidebar.jpg"/>
+    </div>
+
+    <div class="sidebar-layout">
+      <div class="sidebar-header">
+        <img class="logo-dash" src="{{ base_path ~ directory }}/logo.svg"/>
+      </div>
+      <div class="sidebar-content">
+        {# Menu Usuario #}
+        {% if page.menu %}
+          <section class="menu_user-content_theme">
+            <div class="container-fluid"> 
+              <div class="row clearfix">
+                <div class="col-12"> 
+                  {{ page.menu }}
+                </div>
+              </div>
+            </div>
+          </section>
+        {% endif %}
+      </div>
+      <div class="sidebar-footer">
+        {% include "@koecontrato/layout/footer.html.twig" %}
+      </div>
+    </div>
+
+  </aside>
+
+  <div class="layout page_front-koe">
+    <div class="header header-color-azul justify-content-between">
+      <div class="accion-menu">
+        <a id="btn-collapse" href="#">
+          MENÚ
+        </a>
+        <a id="btn-toggle" href="#" class="sidebar-toggler break-point-lg">
+        </a>
+      </div>
+      {% include "@koecontrato/layout/header-user.html.twig" %}
+    </div>
+    {# Contenido #}
+    <main class="content">
+    {# System #}
+    {% if page.system %}
+      <section class="system-content_theme">
+        <div class="container"> 
+          <div class="row clearfix">
+            <div class="col-12"> 
+              {{ page.system }}
+            </div>
+          </div>
+        </div>
+      </section>
+    {% endif %}
+  {# Main content #}
+  {% if page.content %}
+    <section class="main-content_theme">
+      <div class="container pb-5"> 
+        <div class="row clearfix">
+          <div class="col-12">
+            {{ page.content }}
+          </div>
+        </div>
+      </div>
+    </section> 
+  {% endif %}
+  
+  </div>
+</div>
+
+{% block javascript %}
+  <script src="{{ base_path ~ directory }}/js/sidebar.js" type="text/javascript"></script>
+{% endblock %}

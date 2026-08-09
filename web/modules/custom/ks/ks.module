@@ -1,0 +1,1254 @@
+<?php
+
+/**
+ * @file
+ * Primary module hooks for Ks module.
+ */
+ 
+ use Drupal\Core\Routing\RouteMatchInterface;
+ use Drupal\Core\Form\FormState;
+ use Drupal\Core\Form\FormStateInterface;
+ use Symfony\Component\HttpFoundation\RedirectResponse;
+ use Drupal\Core\Url;
+ use Drupal\user\Entity\User;
+ use Drupal\Core\Entity\EntityInterface;
+ use Drupal\webform\Entity\Webform;
+ use Drupal\webform\WebformSubmissionForm;
+  
+ use Drupal\ks\Folio;
+ use Drupal\ks\Pdf;
+ use Drupal\ks\Entity\Contrato;
+ use Drupal\ks\Entity\Filial;
+ use Drupal\Core\Ajax\AjaxResponse;
+ use Drupal\Core\Ajax\InvokeCommand;
+ use Drupal\Core\Ajax\ReplaceCommand;
+ use Drupal\Core\Ajax\AlertCommand;
+ use Drupal\views\ViewExecutable;
+ 
+ use setasign\Fpdi\Fpdi;
+ 
+ use Ddeboer\Imap\Server;
+ use Ddeboer\Imap\SearchExpression;
+ use Ddeboer\Imap\Search\Text\Subject;
+ use Ddeboer\Imap\Search\Text\Body;
+ use Ddeboer\Imap\Search\Flag\Unseen;
+ 
+ function ks_preprocess_html(&$variables) {
+   $route = \Drupal::routeMatch();
+   
+   $route_name = $route->getRouteName();
+   
+   $url = '';
+   try{
+      $url = Url::fromRoute($route_name);
+      $url = str_ireplace('/', '-', trim($url->toString(), '/'));
+    }catch(\Exception $e){
+      $url = '';
+    }
+   
+   $variables['route_name'] = $route_name;   
+   $variables['attributes']['class'][] = $url;
+   
+   $bag = $route->getParameters();
+   if($bag->has('node')){
+     $node = $bag->get('node');     
+     $variables['attributes']['class'][] = 'node-'.$node->getType();
+     $variables['attributes']['class'][] = 'node-'.$node->id();
+   }
+   
+   if($bag->has('webform')){
+     $webform = $bag->get('webform');
+     $variables['attributes']['class'][] = 'webform';
+     $variables['attributes']['class'][] = 'webform-'.(is_string($webform)? $webform:$webform->id());
+    }
+    
+    $roles = \Drupal::currentUser()->getRoles();
+    foreach ($roles as $role) {
+      $variables['attributes']['class'][] = "role-{$role}";
+    }
+ }
+   
+ function ks_form_alter(&$form, FormStateInterface $form_state, $form_id){   
+   switch($form_id){
+     case 'user_login_form':
+       array_unshift($form['#validate'], 'ks_user_login_form_validate');
+       $form['#submit'][] = 'ks_user_login_form_submit';
+     break;
+   }
+ }
+ 
+ function ks_user_login_form_validate($form, FormStateInterface $form_state) {   
+   $values = $form_state->getValues();
+   $username = trim($values['name']);
+   $password = trim($values['pass']);
+   
+   if ( empty( $username ) || empty( $password ) ) return;
+   
+   $account = user_load_by_name($username);
+   if(!$account) $account = user_load_by_mail($username);
+   
+   error_log($username);
+   
+   if($account){
+     if(!$account->hasRole('vendedor')){
+       error_log('El usuario existe, no es un vendedor, continúa el flujo normal...');
+       return;//El usuario existe, no es un vendedor, por lo que continúa el flujo normal			
+     }
+   }
+   
+   error_log('El usuario es vendedor o no está registrado.');
+   
+   if(filter_var($username, FILTER_VALIDATE_EMAIL) == FALSE){
+     error_log('$username no es correo.');
+     $form_state->setErrorByName('name', t('Para iniciar sesión utilice su correo electrónico y contraseña'));
+     return;
+   }
+   error_log('$username es correo, validando en el DPS...');
+   
+   $dps_user = Folio::koe_api_call('api/user/global', ['username' => $username, 'password' => $password, 'picture' => false], 'POST', false);
+   if(!isset($dps_user['authenticated'])){
+     if($account) $form_state->setErrorByName('name', t('Para iniciar sesión utilice su correo electrónico y contraseña registrados en el DPS KOE'));
+     return; 
+   }
+  
+   error_log('Usuario firmado en el DPS.');
+   
+   $email = $username;
+   $form_state->setValue('pass', Folio::VENDEDOR_PASSWORD);
+   
+   if(!$account){
+     $username = $dps_user['userName'];
+     error_log('El usuario parece no existir, procediendo a validar la información...');
+     if (!user_load_by_mail( $email ) ) {
+       error_log('El usuario no existe, creando nuevo usuario...');       
+       $account = Folio::koe_account_create($email, $username);
+     } 
+   }
+   
+   Folio::koe_session('user_id', $account->id());
+   Folio::koe_session('userName', $dps_user['userName']);
+   Folio::koe_session('codUsuario', $dps_user['codUsuario']);
+   
+   //Obteniendo Token
+   koe_token_retrieve($email, $password);
+   Folio::koe_session('emailoperador', $email);
+   
+   //Sedes/filiales
+   $paisSistema = 1;//1 = pa, 6 => mx; País sistema de esta instalación
+   
+   $paises = $dps_user['paises'];
+   foreach($paises as $pais){
+     if($pais['cod'] == $paisSistema) break;//if($pais['defaultCountry'] == true) break;     
+   }
+   $codPais = $pais['cod'];
+   Folio::koe_session('codPais', $codPais);
+   
+   $sedeDefault = $dps_user['sedeOmision']['idsede'];
+   Folio::koe_session('sedeDefault', $sedeDefault);
+   
+   $sedes = $pais['sedesacceso'];
+   Folio::koe_session('sedes', $sedes);
+   
+   $filiales = [];
+   $sedes = Folio::koe_api_call('api/online/filiales/'.$codPais, [], 'GET', true);
+   foreach($sedes as $sede){
+     $sede_filiales = $sede['filiales'];
+     
+     $filiales[$sede['idsede']] = $sede_filiales;
+     
+     foreach($sede_filiales as $filial){
+       $id_filial = $filial['iD_Filial'];
+       $result = Drupal::entityTypeManager()->getStorage('filial')->loadByProperties(['field_id' => $id_filial]);
+       if(!$result){
+         $item = Filial::create(['field_id' => $id_filial, 'label' => $filial['nombre']]);
+         $item->save();
+       }       
+     }
+   }
+   Folio::koe_session('filiales', $filiales);
+   
+   //Planes
+   $planes = Folio::koe_api_call('api/online/plan/'.$codPais, [], 'GET', true);
+   Folio::koe_session('planes', $planes);
+   
+   //Servicios
+   $servicios = Folio::koe_api_call('api/online/tipocontrato/', [], 'GET', true);
+   Folio::koe_session('servicios', $servicios);
+  
+   $form_state->setValidationComplete();
+   $url = $account->hasRole('vendedor')? Url::fromUri('internal:/contrato'):Url::fromUri('internal:/verificacion/datos-de-facturacion');
+   $form_state->setRedirectUrl($url);   
+ }
+ 
+ function koe_token_retrieve($email, $password){
+   $result = Folio::koe_api_call('token', ['username' => $email, 'password' => $password, 'grant_type' => 'password'], 'POST', false, 'application/x-www-form-urlencoded');
+   if(isset($result['access_token'])) Folio::koe_session('token', $result['access_token']);
+ }
+ 
+ function ks_user_login_form_submit($form, FormStateInterface $form_state) {
+   $name = $form_state->getValue('name');
+   $account = user_load_by_name($name);
+   if($account){    
+     $url = $account->hasRole('vendedor')? Url::fromUri('internal:/contrato'):Url::fromUri('internal:/user');
+     $form_state->setRedirectUrl($url);
+   }
+ }
+ 
+ function ks_mail_alter(&$message) {
+      //$message['send'] = FALSE;
+  }
+ 
+ function ks_webform_submission_form_alter(array &$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {     
+     $form['#attached']['library'][] = 'ks/ks';
+     
+     if($form['#webform_id'] == 'contrato'){
+       $form['#attached']['library'][] = 'ks/iti-fix';
+     }     
+ }
+  
+function ks_webform_element_alter(array &$element, \Drupal\Core\Form\FormStateInterface $form_state, array $context) {    
+    $webform = $context['form'];    
+    if(!isset($webform['#webform_id']) || !isset($element['#webform_key'])) return;
+    
+    $webform_id = $webform['#webform_id'];
+    if(!in_array($webform_id, ['contrato', 'bienvenida', 'chequeo', 'facturacion', 'entrega'])){
+      return;
+    }
+      
+    //General
+    switch($element['#webform_key']){
+      case 'folio':
+        if($webform_id != 'contrato'){
+          $element['#default_value'] = Folio::koe_folio($webform_id);
+        }
+        break;
+      case 'revisar_pdf':
+        $element['#prefix'] = '<div id="revisar-pdf-wrapper">';
+        $element['#suffix'] = '</div>';
+        
+        $data = $form_state->getValues();
+        if(!empty($data)){
+          $url = koe_pdf_procesar($webform_id, $data, true);
+          $form_state->set('pdf_url', $url);
+                   
+          $element['#text'] = '<p><iframe height="700" src="'.$url.'#toolbar=1" width="550"></iframe></p>';
+        }
+        
+        break;
+      case 'revisar_trigger':
+        $element['#ajax'] = [
+            'callback' => 'ks_revisar_pdf_change',
+            'event' => 'change',
+            'wrapper' => 'revisar-pdf-wrapper',
+            'progress' => ['type' => 'bar', 'message' => '']
+        ];
+        break;
+      case 'attachment_url':
+        if($webform_id != 'contrato'){
+          $folio = Folio::koe_folio($webform_id);
+          $element['#default_value'] = Pdf::getFileRoute($webform_id, $folio);
+        }        
+        break; 
+    }
+    
+    
+    switch($webform_id){
+      case 'contrato':
+        if(!Folio::koe_session('codUsuario')) return;
+        
+        switch($element['#webform_key']){
+          case 'contrato_filial':
+            $element['#prefix'] = '<div id="filial-wrapper">';
+            $element['#suffix'] = '</div>';
+            
+            $idSede = $form_state->getValue('contrato_sede');
+            if(!$idSede) $idSede = Folio::koe_session('sedeDefault');
+            
+            $options = [];
+            $filiales = Folio::koe_session('filiales');
+            $filiales = isset($filiales[$idSede])? $filiales[$idSede]:reset($filiales);
+            
+            foreach($filiales as $filial){
+              $options[$filial['iD_Filial']] = $filial['nombre'];
+            }
+            $element['#options'] = $options;
+            break;
+          case 'contrato_sede':
+            $sedeDefault = Folio::koe_session('sedeDefault');
+            $sedes = Folio::koe_session('sedes');
+             
+            if($sedes){
+              $options = [];
+              foreach($sedes as $sede){
+                 $options[$sede['idsede']] = $sede['nombre'];
+              }
+              $element['#options'] = $options;
+              $element['#default_value'] = $sedeDefault;//Este se permite pues el ejecutivo esta atado a una sede
+            }
+            
+            $element['#ajax'] = [
+                'callback' => 'ks_sede_change',
+                'event' => 'change',
+                'wrapper' => 'filial-wrapper',
+                'progress' => ['type' => 'throbber', 'message' => '']
+            ];
+            break;
+          case 'comprador_dato':
+            $element['#ajax'] = [
+                'callback' => 'ks_dato_change',
+                'event' => 'change',
+                'progress' => ['type' => 'throbber', 'message' => '']
+            ];
+            break;
+          case 'comprador_nacimiento':
+            $element['#ajax'] = [
+              'callback' => 'ks_comprador_nacimiento_change',
+              'event' => 'focusout',
+              'disable-refocus' => true,
+              'progress' => ['type' => 'throbber', 'message' => '']
+            ];
+            break;
+          case 'beneficiarios_uno_nacimiento':
+            $element['#ajax'] = [
+              'callback' => 'ks_beneficiarios_uno_nacimiento_change',
+              'event' => 'focusout',
+              'disable-refocus' => true,
+              'progress' => ['type' => 'throbber', 'message' => '']
+            ];
+          break;
+          case 'beneficiarios_dos_nacimiento':
+            $element['#ajax'] = [
+              'callback' => 'ks_beneficiarios_dos_nacimiento_change',
+              'event' => 'focusout',
+              'disable-refocus' => true,
+              'progress' => ['type' => 'throbber', 'message' => '']
+            ];
+          break;
+          case 'pagare_nacimiento':
+          $element['#ajax'] = [
+            'callback' => 'ks_pagare_nacimiento_change',
+            'event' => 'focusout',
+            'disable-refocus' => true,
+            'progress' => ['type' => 'throbber', 'message' => '']
+          ];
+          break;
+          case 'beneficiarios_uno_edad':
+          case 'beneficiarios_dos_edad':
+            $element['#ajax'] = [
+                'callback' => 'ks_edad_change',
+                'event' => 'change',
+                'progress' => ['type' => 'throbber', 'message' => '']
+            ];
+            break;
+          case 'beneficiarios_uno_servicio':
+          case 'beneficiarios_dos_servicio':
+            $servicios = Folio::koe_session('servicios');
+             
+            if($servicios){
+              $options = [];
+              foreach($servicios as $servicio){
+                 $options[$servicio] = $servicio;
+              }
+              $element['#options'] = $options;
+            }
+            /*$element['#ajax'] = [//No funciona correctamente debido a que se desfasan el max y min en la validación, basta con el edad_change.
+                'callback' => 'ks_servicio_change',
+                'event' => 'change',
+                'progress' => ['type' => 'throbber', 'message' => '']
+            ];*/
+            break;          
+          case 'condiciones_plan':
+              $element['#prefix'] = '<div id="plan-wrapper">';
+              $element['#suffix'] = '</div>';
+              
+              $options = [];
+              $planes = Folio::koe_session('planes');
+              foreach($planes as $plan){
+                $options[$plan['idPlan']] = $plan['idPlan'].' - '.$plan['codPlan'].' - '.$plan['descripcion'];
+              }
+              $element['#options'] = $options;
+              $element['#ajax'] = [
+                  'callback' => 'ks_plan_change',
+                  'event' => 'change',
+                  'progress' => ['type' => 'throbber', 'message' => '']
+              ];
+            break;
+          case 'condiciones_precio':
+            $element['#ajax'] = [
+                'callback' => 'ks_precio_change',
+                'event' => 'change',
+                'progress' => ['type' => 'throbber', 'message' => '']
+            ];
+          break;
+          
+          case 'clausulas_nombre':
+            $element['#default_value'] = Folio::koe_session('userName');//Estos también se permiten aquí, pues no deberían variar
+          break;
+          case 'clausulas_rfc':
+            $element['#default_value'] = Folio::koe_session('codUsuario');//Estos también se permiten aquí, pues no deberían variar
+          break;
+        }
+      break;
+      
+    }
+  }
+  
+  function ks_revisar_pdf_change(array &$form,\Drupal\Core\Form\FormStateInterface $form_state) {
+    return $form['elements']['revisar']['revisar_pdf'];
+  } 
+  function ks_sede_change(array &$form,\Drupal\Core\Form\FormStateInterface $form_state) {
+    return $form['elements']['datosgenerales']['ct_col2']['contrato_filial'];
+  }
+  function ks_dato_change(array &$form,\Drupal\Core\Form\FormStateInterface $form_state) {
+    $response = new AjaxResponse();
+    
+    $idDato = trim($form_state->getValue('comprador_dato'));
+    if(!$idDato) $idDato = 0;
+    
+    $result = Folio::koe_api_call('api/online/dato/'.$idDato, [], 'GET', true);
+    if(isset($result['message'])){
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-comprador-dato"]', 'val', ['']));
+      $response->addCommand(new AlertCommand($result['message']));
+    }else{
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-comprador-nombre"]', 'val', [$result['nombre'].' '.$result['apellido']]));
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-comprador-correo"]', 'val', [$result['email']]));
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-comprador-domicilio"]', 'val', [$result['direccion']]));
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-comprador-telefono"]', 'val', [$result['numero']]));
+    }
+    
+    return $response;
+  }
+  function ks_comprador_nacimiento_change(array &$form,\Drupal\Core\Form\FormStateInterface $form_state) {
+    $response = new AjaxResponse();
+    
+    $nacimiento = $form_state->getValue('comprador_nacimiento');    
+    if($nacimiento){      
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-comprador-edad"]', 'val', [ks_calcular_edad($nacimiento)]));
+    }
+    
+    return $response;
+  }
+  function ks_beneficiarios_uno_nacimiento_change(array &$form,\Drupal\Core\Form\FormStateInterface $form_state) {
+    $response = new AjaxResponse();
+    
+    $nacimiento = $form_state->getValue('beneficiarios_uno_nacimiento');    
+    if($nacimiento){      
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-beneficiarios-uno-edad"]', 'val', [ks_calcular_edad($nacimiento)]));
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-beneficiarios-uno-edad"]', 'change'));
+    }
+    
+    return $response;
+  }
+  function ks_beneficiarios_dos_nacimiento_change(array &$form,\Drupal\Core\Form\FormStateInterface $form_state) {
+    $response = new AjaxResponse();
+    
+    $nacimiento = $form_state->getValue('beneficiarios_dos_nacimiento');    
+    if($nacimiento){      
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-beneficiarios-dos-edad"]', 'val', [ks_calcular_edad($nacimiento)]));
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-beneficiarios-dos-edad"]', 'change'));
+    }
+    
+    return $response;
+  }
+  function ks_pagare_nacimiento_change(array &$form,\Drupal\Core\Form\FormStateInterface $form_state) {
+    $response = new AjaxResponse();
+    
+    $nacimiento = $form_state->getValue('pagare_nacimiento');    
+    if($nacimiento){      
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-pagare-edad"]', 'val', [ks_calcular_edad($nacimiento)]));
+    }
+    
+    return $response;
+  }
+  const PLAN_PERSONALIZADO_ID = 9940;
+  function ks_plan_change(array &$form,\Drupal\Core\Form\FormStateInterface $form_state) {
+    $response = new AjaxResponse();
+    
+    $idPlan = trim($form_state->getValue('condiciones_plan'));
+    if(!$idPlan) $idPlan = 0;
+    
+    $selectedPlan = null;    
+    $planes = Folio::koe_session('planes');
+    foreach($planes as $plan){
+      if($plan['idPlan'] == $idPlan){
+        $selectedPlan = $plan;
+        break;
+      }
+    }
+    
+    $personalizado = ($idPlan == PLAN_PERSONALIZADO_ID);
+    
+    $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-condiciones-precio"]', 'prop', ['readonly', !$personalizado]));
+    $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-condiciones-enganche"]', 'prop', ['readonly', !$personalizado]));
+    $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-condiciones-saldo"]', 'prop', ['readonly', !$personalizado]));
+    $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-condiciones-parcialidades"]', 'prop', ['readonly', !$personalizado]));
+    $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-pagare-cuotas"]', 'prop', ['readonly', !$personalizado]));
+    $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-pagare-monto"]', 'prop', ['readonly', !$personalizado]));
+    
+    if(!$personalizado){      
+      $total = (intval($selectedPlan['cantidadCuotas']) > 1)? ($selectedPlan['cantidadCuotas']*$selectedPlan['valorcouta'])+$selectedPlan['valorInicial']:$selectedPlan['valorInicial'];
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-condiciones-precio"]', 'val', [$total]));
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-condiciones-enganche"]', 'val', [$selectedPlan['valorInicial']]));
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-condiciones-saldo"]', 'val', [(intval($selectedPlan['cantidadCuotas']) > 1)? $total-$selectedPlan['valorInicial']:0]));
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-condiciones-parcialidades"]', 'val', [(intval($selectedPlan['cantidadCuotas']) > 1)? $selectedPlan['cantidadCuotas'].' mensualidades de '.$selectedPlan['valorcouta']:0]));
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-pagare-cuotas"]', 'val', [$selectedPlan['cantidadCuotas']]));
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-pagare-monto"]', 'val', [$selectedPlan['valorcouta']]));
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-condiciones-precio"]', 'change'));
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-condiciones-saldo"]', 'change'));
+    }
+      
+    return $response;
+  }
+  function ks_precio_change(array &$form,\Drupal\Core\Form\FormStateInterface $form_state) {
+    $response = new AjaxResponse();
+    
+    $letras = ks_numero_a_letras(intval($form_state->getValue('condiciones_precio')));
+    $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-clausulas-costo"]', 'val', [$letras]));
+    
+    return $response;
+  }
+  function ks_edad_change(array &$form,\Drupal\Core\Form\FormStateInterface $form_state) {
+    $response = new AjaxResponse();
+    
+    $beneficiarios = ['uno', 'dos'];
+    foreach($beneficiarios as $beneficiario){
+      $edad = $form_state->getValue('beneficiarios_'.$beneficiario.'_edad');
+      $servicio = ($edad < 13)? 'KIDS':'ADULTO';
+      
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-beneficiarios-'.$beneficiario.'-servicio"]', 'val', [$servicio]));
+    }
+    
+    return $response;
+  }
+  function ks_servicio_change(array &$form,\Drupal\Core\Form\FormStateInterface $form_state) {
+    $response = new AjaxResponse();
+    
+    $beneficiarios = ['uno', 'dos'];
+    foreach($beneficiarios as $beneficiario){
+      $servicio = $form_state->getValue('beneficiarios_'.$beneficiario.'_servicio');
+      $kids = ($servicio == 'KIDS');
+      $min = $kids? 7:13;
+      $max = $kids? 12:99;
+      
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-beneficiarios-'.$beneficiario.'-edad"]', 'attr', ['min', $min]));
+      $response->addCommand(new InvokeCommand('[data-drupal-selector="edit-beneficiarios-'.$beneficiario.'-edad"]', 'attr', ['max', $max]));
+    }
+    
+    return $response;
+  }
+  
+  //Generic
+  //PDF  
+  function koe_pdf_write($pdf, $data, $campo, $posicion, $pagareBln = false){
+    $input = isset($data[$campo])? $data[$campo]:'';
+    if(is_array($input)) $input = reset($input);
+    $input = mb_convert_encoding($input, 'ISO-8859-1', 'UTF-8');
+        
+    $i = 1;
+    while(isset($posicion['x'.$i])){
+      $valor = $input;
+      
+      if(isset($posicion['pagare'.$i]) && !$pagareBln) $valor = '';
+      else if(isset($posicion['formato'.$i])){
+        switch($posicion['formato'.$i]){
+          case 'zerofill':
+            $valor = str_pad($input, 2, '0', STR_PAD_LEFT);
+          break;
+          case 'date':
+            $date = date_create($input);
+            $valor = date_format($date, 'd/m/Y');
+          break;
+          case 'split_date':					
+            $date = date_create($input);
+            
+            //Día
+            $pdf->SetXY($posicion['x'.$i]-11, $posicion['y'.$i]);
+            $pdf->Write(0, date_format($date, 'j'));
+            
+            //Año
+            $pdf->SetXY($posicion['x'.$i]+22, $posicion['y'.$i]);
+            $pdf->Write(0, date_format($date, 'Y'));
+            
+            //Mes
+            $mesIdx = intval(date_format($date, 'n'))-1;
+            $meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];					
+            $valor = $meses[$mesIdx];
+          break;
+          case 'split_date_bienvenida':					
+            $date = date_create($input);
+            
+            //Día
+            $pdf->SetXY($posicion['x'.$i]-22, $posicion['y'.$i]);
+            $pdf->Write(0, date_format($date, 'j'));
+            
+            //Año
+            $pdf->SetXY($posicion['x'.$i]+38, $posicion['y'.$i]);
+            $pdf->Write(0, date_format($date, 'Y'));
+            
+            //Mes
+            $mesIdx = intval(date_format($date, 'n'))-1;
+            $meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];					
+            $valor = $meses[$mesIdx];
+          break;
+          case 'split_date_contrato':					
+            $date = date_create($input);
+            
+            //Día
+            $pdf->SetXY($posicion['x'.$i]-14, $posicion['y'.$i]);
+            $pdf->Write(0, date_format($date, 'j'));
+            
+            //Año
+            $pdf->SetXY($posicion['x'.$i]+14, $posicion['y'.$i]);
+            $pdf->Write(0, date_format($date, 'Y'));
+            
+            //Mes	
+            $valor = date_format($date, 'n');
+          break;
+          case 'currency':
+            $valor = '$'.number_format(floatval($input), 2);
+          break;
+          case 'number':
+            $valor = number_format(floatval($input), 2);
+          break;
+          case 'yes_no':
+            $valor = 'X';
+            if(strtolower($input) == 'no') $posicion['x'.$i] += 14.3;
+          break;
+          case 'checkbox':
+            $valor = empty($input)? '':'X';
+          break;
+          case 'wordwrap_chequeo':
+            $lineas = explode("\n", wordwrap($input, 96));
+            for($j = 1; $j < count($lineas); $j++){
+              $pdf->SetXY($posicion['x'.$i], $posicion['y'.$i]+($j*5.2));
+              $pdf->Write(0, $lineas[$j]);
+            }
+            $valor = $lineas[0];
+          break;
+          case 'wordwrap_bienvenida':
+            $lineas = explode("\n", wordwrap($input, 123));
+            for($j = 1; $j < count($lineas); $j++){
+              $pdf->SetXY($posicion['x'.$i], $posicion['y'.$i]+($j*5.2));
+              $pdf->Write(0, $lineas[$j]);
+            }
+            $valor = $lineas[0];
+          break;
+          case 'facturacion_metodo_pago':
+            $valor = empty($input)? '':'X';
+            if(strtolower($input) == 'ppd') $posicion['x'.$i] += 83.5;
+          break;
+          case 'facturacion_formas_pago':
+            $valor = empty($input)? '':'X';
+            switch(strtolower($input)){
+              case 'cheque':
+                $posicion['x'.$i] += 42;
+              break;
+              case 'credito':
+                $posicion['x'.$i] += 26;
+              break;
+              case 'otro':
+                $posicion['x'.$i] += 54;
+              break;
+              case 'transferencia':
+                $posicion['x'.$i] += 89.3;
+              break;
+              case 'efectivo':
+                $posicion['x'.$i] += 0;
+              break;
+            }
+          break;
+          case 'facturacion_regimen':
+            $valor = empty($input)? '':'X';
+            switch(strtolower($input)){
+              case 'asalariado':
+                $posicion['y'.$i] += 7.2;
+              break;
+              case 'arrendamiento':
+                $posicion['x'.$i] += 74.5;
+              break;
+              case 'intereses':
+                $posicion['x'.$i] += 74.5;
+                $posicion['y'.$i] += 7.2;
+              break;
+              case 'fiscal':
+                $posicion['x'.$i] += 74.5;
+                $posicion['y'.$i] += 14.5;
+              break;
+              case 'profesionales':
+                $posicion['y'.$i] += 14.5;
+              break;
+              case 'morales':
+                $posicion['y'.$i] += 22;
+              break;
+              case 'nolucrativas':
+                $posicion['x'.$i] += 74.5;
+                $posicion['y'.$i] += 22;
+              break;
+            }
+          break;
+          case 'entrega_tipo':
+            $valor = empty($input)? '':'X';
+            switch(strtolower($input)){
+              case 'cheque':
+                $posicion['x'.$i] += 24.5;
+              break;
+              case 'tarjeta':
+                $posicion['x'.$i] += 44.5;
+              break;
+              case 'transferencia':
+                $posicion['x'.$i] += 69;
+              break;              
+            }
+          break;
+        }
+      }
+      
+      $pdf->SetXY($posicion['x'.$i], $posicion['y'.$i]);
+      $pdf->Write(0, $valor);
+      $i++;
+    }
+  }
+  
+  //File  
+  function koe_pdf_procesar($webform_id, $data, $test = false){
+    $mapas = Pdf::listar($webform_id);
+    
+    $mapa = array_shift($mapas);    
+    $campos = unserialize($mapa['campos']);
+    
+    $folio = ($webform_id == 'contrato')? (isset($data['folio'])? $data['folio']:0):Folio::koe_folio($webform_id);//Contemplando el caso de edición de contrato
+    
+    $digitalBln = ($webform_id == 'contrato' && isset($data['condiciones_material']))? ($data['condiciones_material'] == 'digital'):false;
+    $pagareBln = ($webform_id == 'contrato' && isset($data['condiciones_saldo']))? (intval($data['condiciones_saldo']) > 0):false;
+    $beneficiariosDosBln = ($webform_id == 'contrato' && isset($data['beneficiarios_dos']))? (intval($data['beneficiarios_dos']) > 0):false;
+    $codeudorBln = ($pagareBln && intval($data['pagare']) > 0);
+    
+    $templatesLocation = 'public://pdf/templates/';
+    $template = Drupal::service('file_system')->realpath($templatesLocation.$webform_id.'.pdf');
+      
+    $pdf = new Fpdi();
+    $pdf->SetMargins(0,0,0);
+    $pdf->SetAutoPageBreak(false, 0);
+    $pdf->setSourceFile($template);
+    $pdf->SetFont('Helvetica');
+    
+    $pdf->AddPage();	
+    $page = $pdf->importPage($digitalBln? 2:1);
+    $pdf->useTemplate($page, ['adjustPageSize' => true]);
+    
+    if($webform_id == 'contrato'){//folio
+      $pdf->SetFontSize(15);
+      $pdf->SetTextColor(255, 0, 0);
+      $pdf->SetXY(198, 20.1);
+      $pdf->Write(0, $folio);
+    }elseif($webform_id == 'entrega'){
+      $pdf->SetFontSize(24);
+      $pdf->SetXY(181, 35.7);
+      $pdf->Write(0, $folio);
+    }
+    
+    $pdf->SetFontSize(8);
+    $pdf->SetTextColor(0, 0, 0);
+    
+    
+    foreach($campos as $campo => $posicion){
+      if((!$beneficiariosDosBln && stripos($campo, 'beneficiarios_dos') !== false) || (!$codeudorBln && (stripos($campo, 'pagare_nacimiento') !== false || stripos($campo, 'pagare_ingreso') !== false))){
+        continue;
+      }
+      koe_pdf_write($pdf, $data, $campo, $posicion, $pagareBln);		
+    }
+    
+    if($webform_id == 'contrato'){//Página Dos
+      $mapa = array_shift($mapas);      
+      $campos = unserialize($mapa['campos']);
+      
+      $pdf->AddPage();
+      
+      $pageNumber = 0;
+      if($pagareBln){
+        $pageNumber = $digitalBln? 4:3;
+      }else{
+        $pageNumber = $digitalBln? 6:5;
+      }
+      
+      $page = $pdf->importPage($pageNumber);
+      $pdf->useTemplate($page, ['adjustPageSize' => true]);
+      
+      $pdf->SetFontSize(5);
+      
+      foreach($campos as $campo => $posicion){
+        koe_pdf_write($pdf, $data, $campo, $posicion, $pagareBln);		
+      }
+    }
+      
+    $file_path = Pdf::getFileRoute($webform_id, $folio, true);
+    
+    $pdf->Close();
+    $pdf->Output('F', $file_path);
+    
+    return Pdf::getFileRoute($webform_id, $folio, !$test);
+  }
+  
+  function ks_webform_submission_insert(EntityInterface $submission){
+    $webform = $submission->getWebform();
+    $webform_id = $webform->id();
+    $data = $submission->getData();
+    if(Pdf::hasPdf($webform_id) && $submission->isCompleted()){      
+      $folio = isset($data['folio'])? $data['folio']:null;
+      if(is_null($folio)) return;
+      
+      $matricula = null;
+      if($webform_id != 'contrato'){
+        Folio::koe_folio($webform_id, true);//Folio taken
+        $matricula = isset($data[$webform_id.'_matricula'])? $data[$webform_id.'_matricula']:(isset($data[$webform_id.'_contrato'])? $data[$webform_id.'_contrato']:null);
+      }
+      
+      $google_drive_url = '';
+      try{          
+          $pdf = Pdf::getFileRoute($webform_id, $folio, true);
+          if(file_exists($pdf)){            
+            $gfile = Pdf::processFile($pdf, $webform_id, $matricula);
+            ddm($gfile);
+            if(!is_null($gfile)){
+              $google_drive_url = $gfile->webViewLink;
+            }
+          }          
+      }catch(\Exception $e){
+        Drupal::logger('ks')->warning($e->getMessage());
+      }
+      
+      if($webform_id == 'contrato'){
+        $takeFolio = true;
+        $values = [
+          'uid' => Drupal::currentUser()->id(),
+          'field_folio' => $folio,
+          'field_status' => 1,
+          'field_submission' => $submission->id(),
+          'field_gfile' => $google_drive_url,
+          'field_cliente' => $data['comprador_nombre'],
+        ];
+        
+        $contrato_id = isset($data['contrato_id'])? (int) $data['contrato_id']:0;          
+        if($contrato_id){
+          $contrato = Contrato::load($contrato_id);
+          $status = $contrato->field_status->value;
+          if($status == 5){
+            $values['field_precursor'] = $contrato->field_folio->value;
+            $values['field_sisk'] = $contrato->field_sisk->value;
+            
+            $contrato->field_sustitucion = $folio;
+            $contrato->save();
+            Folio::koe_contrato_status_update($contrato->field_folio->value, 7);
+            
+            $contrato = Contrato::create($values);
+          }elseif($status == 3){
+            $takeFolio = false;
+            $contrato->field_status = 1;
+            $contrato->field_submission = $values['field_submission'];
+            $contrato->field_gfile = $values['field_gfile'];
+            $contrato->field_cliente = $values['field_cliente'];          
+          }
+        }else{
+          $contrato = Contrato::create($values);
+        }
+              
+        $contrato->save();
+        if($takeFolio){
+          Folio::koe_folio($webform_id, true);
+        }
+      }
+    }elseif($webform_id == 'aceptacion'){      
+      $folio = isset($data['folio'])? $data['folio']:null;
+      if(is_null($folio)) return;
+      
+      $contrato = Folio::koe_get_contrato($folio);
+      if (!$contrato){
+        return;
+      }
+      
+      $status = $contrato->field_status->value;
+      if(!in_array($status, [1,8,6])){
+        return;
+      }
+      
+      $submission = $contrato->field_submission->entity;
+      $submission_data = $submission->getData();
+      
+      $data['attachment_url'] = $submission_data['attachment_url'];
+      
+      $saldo = intval($submission_data['condiciones_saldo']);
+      $codeudor = intval($submission_data['pagare']);
+      $toCodeudor = ($status != 6 && $saldo > 0 && $codeudor == 1);
+      
+      if($toCodeudor){
+        $data['pagare_aval'] = $submission_data['pagare_aval'];
+        $data['pagare_correo'] = $submission_data['pagare_correo'];
+        $data['pagare_rfc'] = $submission_data['pagare_rfc'];
+      }
+      
+      $precursor = isset($data['precursor'])? $data['precursor']:null;
+      if($precursor && $toCodeudor){
+        $status = ($status == 1)? 8:6;
+      }else{
+        if($status == 8){
+          $status = $precursor? 6:2;
+        }else{
+          $status = $toCodeudor? 8:2;
+        }        
+      }      
+      
+      Folio::koe_contrato_status_update($folio, $status, $data);
+    }
+  }
+  
+  function ks_cron(){
+    $queue = Drupal::queue('ks_queue');
+    
+    $previewsLocation = 'public://pdf/previews/';
+    $path = Drupal::service('file_system')->realpath($previewsLocation);
+    
+    $fileSystemIterator = new \FilesystemIterator($path);
+    $now = time();
+    foreach ($fileSystemIterator as $file) {
+      if ($now - $file->getMTime() >= 60 * 60 * 24 * 30){// 30 days 
+        $item = new \stdClass();
+        $item->path = $file->getPathname();
+        $queue->createItem($item);
+      }
+    }
+    
+    //Correo de aceptación
+    Drupal::logger('ks')->notice('Ejecutando ks_correo_procesar...');
+    ks_correo_procesar();
+  }
+  
+  function ks_correo_procesar(){
+    $username = 'aceptacionkoe@gmail.com';
+    $password = 'qhez kbsw btvy rwpv';
+    $server = new Server('imap.gmail.com', '993', '/imap/ssl/novalidate-cert');
+    $connection = $server->authenticate($username, $password);    
+    Drupal::logger('ks')->notice(print_r($connection, true));
+    
+    $search = new SearchExpression();
+    $search->addCondition(new Unseen());
+    $search->addCondition(new Subject('Aceptación'));
+    $search->addCondition(new Subject('Contrato'));
+    $search->addCondition(new Subject('ON-'));
+    $search->addCondition(new Body('Yo,'));
+    
+    $error = '';
+    
+    $mailbox = $connection->getMailbox('INBOX');
+    $messages = $mailbox->getMessages($search);
+    Drupal::logger('ks')->notice(sprintf('Recibidos %s correos.', count($messages)));
+    foreach ($messages as $message) {
+      $subject = $message->getSubject();
+      
+      $matches = [];
+      preg_match('/ON\D+([\d]+)/im', $subject, $matches, 0, 0);
+      $folio = intval($matches[1], 10);
+      $date_str = date('d/M/Y H:i:s');
+      ddm($date_str.'- ks_correo_procesar - folio: '.$folio.'.');
+      
+      if(!$folio){
+        $error = 'El formato del folio no es válido.';
+      }
+      
+      $contrato = Folio::koe_get_contrato($folio);
+      if (!$contrato) {
+          $error = 'El folio no es válido.';
+      }else{
+        $status = $contrato->field_status->value;
+        if (!in_array($status, [1,8,6])) {
+            switch ($status) {
+                case 2:
+                    $error = 'El contrato ya ha sido registrado.';
+                break;
+                case 3:
+                    $error = 'El contrato se encuentra en proceso de revisión con el Asesor.';
+                break;
+                case 4:
+                    $error = 'Este contrato se encuentra cancelado.';
+                break;
+            }
+        } else {            
+            $data = ['folio' => $folio];
+            if (isset($contrato->field_precursor->value) && $contrato->field_precursor->value) {
+                $data['precursor'] = $contrato->field_precursor->value;
+            }
+            $body = $message->getBodyText();
+            
+            $matches = [];
+            preg_match('/Yo,\W+([^,]+)/im', $body, $matches, 0, 0);
+            $data['comprador_nombre'] = $matches[1];
+            preg_match('/pasaporte\W+([^,]+)/im', $body, $matches, 0, 0);
+            $data['comprador_rfc'] = $matches[1];            
+            
+            $webform = Webform::load('aceptacion');
+            $values = ['webform_id' => $webform->id(), 'data' => $data];
+            $errors = WebformSubmissionForm::validateFormValues($values);
+            if (!empty($errors)) {
+               $error = 'El nombre o número de documento no son válidos. (Significa que en el cuerpo del correo no se detectó la información esperada, procede revisar el correo de aceptación y validar que el formato se haya respetado).';
+               ddm($date_str.' - body: '.$body);
+               ddm($errors);
+            }else{
+                ddm('Sin errores');
+                $webform_submission = WebformSubmissionForm::submitFormValues($values);// Descomentar esta línea para poner producción
+            }
+        }          
+      }
+      $message->markAsSeen();
+      
+      if($error){        
+        $to = ['koemasterweb@gmail.com', 'sandra.rincon@koe.la'];
+        $toList = $message->getTo();
+        $ccList = $message->getCc();        
+        foreach($toList as $item){          
+          $to[] = $item->getFullAddress();
+        }  
+        foreach($ccList as $item){
+          $to[] = $item->getFullAddress();
+        }
+        $to = implode(',', $to);
+        
+        $subject = 'Error procesando: '.$subject;
+        $body = 'El sistema no pudo procesar la aceptación por la siguiente causa: '.$error;
+        
+        $mailManager = Drupal::service('plugin.manager.mail');
+        $mail = $mailManager->mail('ks', 'ks_correo_procesar', $to, Drupal::languageManager()->getDefaultLanguage()->getId(), ['body' => $body, 'subject' => $subject], NULL, true);        
+        $log = t(!$mail['result']? 'Se produjo un problema notificando a @to sobre un error al procesar una aceptación.':'Se notificó a @to sobre problemas procesando un correo de aceptación.', ['@to' => $to]);
+        Drupal::logger('ks')->notice($log);
+      }
+    }
+    
+    $connection->expunge();
+  }
+  function ks_mail($key, &$message, $params) {
+    switch ($key) {
+      case 'ks_correo_procesar':
+        $message['subject'] = $params['subject'];
+        $message['body'][] = $params['body'];
+        break;
+    }
+  }
+  
+  function ks_views_pre_render(ViewExecutable $view) {
+    if (isset($view) && (in_array($view->storage->id(), ['contratos', 'bitacora']))) {
+      $view->element['#attached']['library'][] = 'ks/ks';
+    }
+  }
+  
+  function ks_views_data_alter(array &$data) {    
+    if (isset($data['contrato'])) {      
+      $data['contrato']['contrato_status'] = [
+        'title' => t('Contrato Status'),
+        'field' => [
+          'id' => 'ks_view_contrato_status',
+        ],
+      ];
+      
+      $data['contrato']['filial_filter'] = [
+        'title' => t('Filtro por filial de usuario máster o submáster'),
+        'filter' => [
+          'id' => 'ks_view_filial_filter',
+          'field' => 'field_submission',
+          'title' => t('Filtro por filial de usuario máster o submáster'),
+        ],
+      ];
+    }
+    
+    if (isset($data['webform_submission'])) {      
+      $data['webform_submission']['bitacora_folio'] = [
+        'title' => t('Bitácora Folio'),
+        'field' => [
+          'id' => 'ks_view_bitacora_folio',
+        ],
+      ];
+      
+      $data['webform_submission']['bitacora_subject'] = [
+        'title' => t('Bitácora Subject'),
+        'field' => [
+          'id' => 'ks_view_bitacora_subject',
+        ],
+      ];
+    }
+    
+  }
+  
+function ks_calcular_edad($nacimiento){
+  $nacimiento = new DateTime($nacimiento);
+  $now = new DateTime();
+  $interval = $now->diff($nacimiento);
+  return $interval->y;
+}
+  
+
+function ks_numero_a_letras($num){
+  function Unidades($local_num){
+       switch($local_num)
+       {
+           case 1: return 'UN';
+           case 2: return 'DOS';
+           case 3: return 'TRES';
+           case 4: return 'CUATRO';
+           case 5: return 'CINCO';
+           case 6: return 'SEIS';
+           case 7: return 'SIETE';
+           case 8: return 'OCHO';
+           case 9: return 'NUEVE';
+       }  
+       return '';
+   }
+   
+   function DecenasY($strSin, $numUnidades) {
+        if ($numUnidades > 0){
+            return $strSin . ' Y ' . Unidades($numUnidades);
+          }
+   
+        return $strSin;
+    }
+   
+   function Decenas($local_num){
+   
+        $decena = floor($local_num/10);
+        $unidad = $local_num - ($decena * 10);
+   
+        switch($decena)
+        {
+            case 1:
+                switch($unidad)
+                {
+                    case 0: return 'DIEZ';
+                    case 1: return 'ONCE';
+                    case 2: return 'DOCE';
+                    case 3: return 'TRECE';
+                    case 4: return 'CATORCE';
+                    case 5: return 'QUINCE';
+                    default: return 'DIECI' + Unidades($unidad);
+                }
+            case 2:
+                switch($unidad)
+                {
+                    case 0: return 'VEINTE';
+                    default: return 'VEINTI' + Unidades($unidad);
+                }
+            case 3: return DecenasY('TREINTA', $unidad);
+            case 4: return DecenasY('CUARENTA', $unidad);
+            case 5: return DecenasY('CINCUENTA', $unidad);
+            case 6: return DecenasY('SESENTA', $unidad);
+            case 7: return DecenasY('SETENTA', $unidad);
+            case 8: return DecenasY('OCHENTA', $unidad);
+            case 9: return DecenasY('NOVENTA', $unidad);
+            case 0: return Unidades($unidad);
+        }
+    }
+    
+    function Centenas($local_num, $caller = '') {      
+         $centenas = floor($local_num / 100);
+         $decenas = $local_num - ($centenas * 100);
+    
+         switch($centenas)
+         {
+             case 1:
+                 if ($decenas > 0){
+                     return 'CIENTO ' . Decenas($decenas);
+                   }
+                 return 'CIEN';
+             case 2: return 'DOSCIENTOS ' . Decenas($decenas);
+             case 3: return 'TRESCIENTOS ' . Decenas($decenas);
+             case 4: return 'CUATROCIENTOS ' . Decenas($decenas);
+             case 5: return 'QUINIENTOS ' . Decenas($decenas);
+             case 6: return 'SEISCIENTOS ' . Decenas($decenas);
+             case 7: return 'SETECIENTOS ' . Decenas($decenas);
+             case 8: return 'OCHOCIENTOS ' . Decenas($decenas);
+             case 9: return 'NOVECIENTOS ' . Decenas($decenas);
+         }
+    
+         return Decenas($decenas);
+     }
+     
+     function Seccion($local_num, $divisor, $strSingular, $strPlural) {
+          $cientos = floor($local_num / $divisor);          
+          $resto = $local_num - ($cientos * $divisor);
+     
+          $letras = '';
+     
+          if ($cientos > 0){
+              if ($cientos > 1){
+                  $letras = Centenas($cientos, 'seccion') . ' ' . $strPlural;
+              }else{
+                  $letras = $strSingular;
+                }
+     }
+          if ($resto > 0){
+              $letras .= '';
+            }
+     
+          return $letras;
+      }
+      
+      function Miles($local_num) {
+           $divisor = 1000;
+           $cientos = floor($local_num / $divisor);
+           $resto = $local_num - ($cientos * $divisor);
+      
+           $strMiles = Seccion($local_num, $divisor, 'UN MIL', 'MIL');           
+           $strCentenas = Centenas($resto, 'miles');
+      
+           if($strMiles == ''){
+               return $strCentenas;
+             }
+      
+           return $strMiles . ' ' . $strCentenas;
+       }
+      
+   function Millones($local_num) {
+        $divisor = 1000000;
+        $cientos = floor($local_num / $divisor);
+        $resto = $local_num - ($cientos * $divisor);
+   
+        $strMillones = Seccion($local_num, $divisor, 'UN MILLON DE', 'MILLONES DE');
+        $strMiles = Miles($resto);
+   
+        if($strMillones == ''){
+            return $strMiles;
+        }
+   
+        return $strMillones . ' ' . $strMiles;
+    }
+    
+    function Centavos($centavos, $moneda){
+            if ($centavos > 9){
+            return $centavos . '/100 ' . $moneda;
+          }
+        else{
+            return '0' . $centavos . '/100 ' . $moneda;
+          }
+    }
+   
+   $data = [
+       'numero' => $num,
+       'enteros' => floor($num),
+       'centavos' => (((round($num * 100)) - (floor($num) * 100))),
+       'letrasCentavos' => '',
+       'letrasMonedaPlural' => ' DÓLARES',
+       'letrasMonedaSingular' => ' DÓLARES',
+       'letrasMonedaCentavoPlural' => 'USD',
+       'letrasMonedaCentavoSingular' => 'USD',
+   ];
+   
+   if (true) {
+        $data['letrasCentavos'] = ' ';// . Centavos($data['centavos'], $data['letrasMonedaCentavoPlural']);
+    }
+   
+    if($data['enteros'] == 0){
+        return 'CERO ' . $data['letrasMonedaPlural'] . $data['letrasCentavos'];
+      }
+    if ($data['enteros'] == 1){
+        return Millones($data['enteros']) . $data['letrasMonedaPlural'] . $data['letrasCentavos'];
+      }
+    else{
+        return Millones($data['enteros']) . $data['letrasMonedaPlural'] . $data['letrasCentavos'];
+      }
+   
+}

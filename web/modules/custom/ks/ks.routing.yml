@@ -1,0 +1,131 @@
+ks.settings_form:
+  path: '/admin/config/system/ks'
+  defaults:
+    _title: 'Koe - Opciones de configuración'
+    _form: 'Drupal\ks\Form\SettingsForm'
+  requirements:
+    _permission: 'administer ks configuration'
+
+entity.contrato.settings:
+  path: 'admin/structure/contrato'
+  defaults:
+    _form: '\Drupal\ks\Form\ContratoSettingsForm'
+    _title: 'Contrato'
+  requirements:
+    _permission: 'administer contrato'
+
+ks.pdf_form:
+    path: '/admin/structure/webform/manage/{webform}/pdf'
+    defaults:
+      _form: '\Drupal\ks\Form\PdfForm'
+      _title: 'Pdf'
+    requirements:
+      _entity_access: 'webform.update'
+      _custom_access: '\Drupal\ks\Form\PdfForm::access'
+    options:
+      _admin_route: TRUE
+      
+ks.contrato_valoracion:
+  path: '/contrato/{folio}/{valoracion}'
+  defaults:
+    _controller: '\Drupal\ks\Controller\AdminController::contrato_valoracion'
+    _title: 'Valoración de contrato'
+  requirements:
+    _permission: 'access content'
+  options:
+    folio: \d+
+    valoracion: \s+
+
+ks.contrato_editar:
+  path: '/ejecutivo/contrato/{folio}'
+  defaults:
+    _controller: '\Drupal\ks\Controller\AdminController::contrato_ejecutivo'
+    _title: 'Carátula de Contrato de Adquisición del Programa Fast & Easy de KOE Panamá'
+    folio: 0
+  requirements:
+    _permission: 'koe contrato editar'
+  options:
+    folio: \d+
+        
+ks.oauth_callback:
+  path: '/oauth/callback'
+  defaults:
+    _controller: '\Drupal\ks\Controller\AdminController::oauth_callback'
+    _title: 'Koe'
+  requirements:
+    _permission: 'access content'
+      
+ks.contrato_extender:
+      path: '/contrato/{folio}/extender'
+      defaults:
+        _controller: '\Drupal\ks\Controller\AdminController::contrato_extender'
+        _title: 'Contrato'
+      requirements:
+        _permission: 'koe contrato extender'
+      options:
+        folio: \d+
+
+ks.contrato_cancelar:
+        path: '/contrato/{folio}/cancelar'
+        defaults:
+          _controller: '\Drupal\ks\Controller\AdminController::contrato_cancelar'
+          _title: 'Contrato'
+        requirements:
+          _permission: 'koe contrato cancelar'
+        options:
+          folio: \d+
+
+ks.contrato_legalizar:
+            path: '/contrato/{folio}/legalizar'
+            defaults:
+              _controller: '\Drupal\ks\Controller\AdminController::contrato_legalizar'
+              _title: 'Contrato'
+            requirements:
+              _permission: 'koe contrato legalizar'
+            options:
+              folio: \d+
+
+ks.contrato_revisar:
+            path: '/contrato/{folio}/revision'
+            defaults:
+              _controller: '\Drupal\ks\Controller\AdminController::contrato_revision'
+              _title: 'Contrato'
+            requirements:
+              _permission: 'koe contrato revisar'
+            options:
+              folio: \d+
+
+ks.email_reenviar:
+      path: '/reenviar/{sid}/{handler_id}'
+      defaults:
+        _controller: '\Drupal\ks\Controller\AdminController::email_reenviar'
+        _title: 'Contrato'
+      requirements:
+        _permission: 'koe contrato revisar'
+      options:
+        sid: \d+
+        handler_id: \s+
+
+entity.filial.settings:
+  path: 'admin/structure/filial'
+  defaults:
+    _form: '\Drupal\ks\Form\FilialSettingsForm'
+    _title: 'Filial'
+  requirements:
+    _permission: 'administer filial'
+
+entity.action.settings:
+  path: 'admin/structure/action'
+  defaults:
+    _form: '\Drupal\ks\Form\ActionSettingsForm'
+    _title: 'Action'
+  requirements:
+    _permission: 'administer action'
+    
+entity.action.collection:
+  path: 'admin/structure/action'
+  defaults:
+    _form: '\Drupal\ks\Form\ActionSettingsForm'
+    _title: 'Action'
+  requirements:
+    _permission: 'administer action'

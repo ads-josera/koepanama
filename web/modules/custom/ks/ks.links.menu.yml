@@ -1,0 +1,39 @@
+ks.settings_form:
+  title: 'Koe'
+  description: 'Koe - Opciones de configuración'
+  parent: system.admin_config_system
+  route_name: ks.settings_form
+  weight: 10
+
+entity.contrato.settings:
+  title: 'Contrato'
+  description: 'Configure a Contrato entity type.'
+  route_name:  entity.contrato.settings
+  parent: system.admin_structure
+entity.contrato.collection:
+  title: 'Contratos'
+  description: 'List of contratos.'
+  route_name: entity.contrato.collection
+  parent: system.admin_content
+
+entity.filial.settings:
+  title: 'Filial'
+  description: 'Configure a Filial entity type.'
+  route_name:  entity.filial.settings
+  parent: system.admin_structure
+entity.filial.collection:
+  title: 'Filials'
+  description: 'List of filials.'
+  route_name: entity.filial.collection
+  parent: system.admin_content
+
+entity.action.settings:
+  title: 'Action'
+  description: 'Configure an Action entity type.'
+  route_name:  entity.action.settings
+  parent: system.admin_structure
+entity.action.collection:
+  title: 'Actions'
+  description: 'List of actions.'
+  route_name: entity.action.collection
+  parent: system.admin_content

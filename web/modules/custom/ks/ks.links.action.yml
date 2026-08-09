@@ -1,0 +1,17 @@
+contrato.add_form:
+  title: 'Add contrato'
+  route_name: entity.contrato.add_form
+  appears_on:
+    - entity.contrato.collection
+
+filial.add_form:
+  title: 'Add filial'
+  route_name: entity.filial.add_form
+  appears_on:
+    - entity.filial.collection
+
+action.add_form:
+  title: 'Add action'
+  route_name: entity.action.add_form
+  appears_on:
+    - entity.action.collection

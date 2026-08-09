@@ -1,0 +1,71 @@
+@import url("https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,400;0,700;0,900;1,400;1,700;1,900&display=swap");
+@font-face { font-family: "ExcellenceInMotionScreen"; font-style: normal; font-weight: 400; src: url("../../css/fonts/ExcellenceInMotionScreen-Regular.eot?") format("eot"), url("../../css/fonts/ExcellenceInMotionScreen-Regular.woff2") format("woff2"), url("../../css/fonts/ExcellenceInMotionScreen-Regular.woff") format("woff"), url("../../css/fonts/ExcellenceInMotionScreen-Regular.ttf") format("truetype"), url("../../css/fonts/ExcellenceInMotionScreen-Regular.svg#ExcellenceInMotionScreen") format("svg"); }
+
+@font-face { font-family: "ExcellenceInMotionScreen"; font-style: bold; font-weight: 700; src: url("../../css/fonts/ExcellenceInMotionScreen-Bold.eot?") format("eot"), url("../../css/fonts/ExcellenceInMotionScreen-Bold.woff2") format("woff2"), url("../../css/fonts/ExcellenceInMotionScreen-Bold.woff") format("woff"), url("../../css/fonts/ExcellenceInMotionScreen-Bold.ttf") format("truetype"), url("../../css/fonts/ExcellenceInMotionScreen-Bold.svg#ExcellenceInMotionScreen") format("svg"); }
+
+.km-form-online { overflow: hidden; }
+
+#navbar_km { background-color: #FFFFFF; -webkit-box-shadow: rgba(50, 50, 93, 0.25) 0px 13px 27px -5px, rgba(0, 0, 0, 0.3) 0px 8px 16px -8px; box-shadow: rgba(50, 50, 93, 0.25) 0px 13px 27px -5px, rgba(0, 0, 0, 0.3) 0px 8px 16px -8px; }
+
+#navbar_km ul { list-style: none; }
+
+#navbar_km ul li.nav-item { display: inline-block; }
+
+#navbar_km ul li.nav-item .nav-link { font-size: 1rem; padding: 15px 10px; margin: 0 10px; }
+
+#navbar_km ul li.nav-item .nav-link:hover { background-color: #E50695; color: #FFFFFF; }
+
+#navbar_km ul li.nav-item.menu-item--active-trail .nav-link { background-color: #E50695; color: #FFFFFF; }
+
+@media screen and (min-width: 768px) { .role-authenticated.path-user #navbar_km { background-color: transparent; -webkit-box-shadow: none; box-shadow: none; }
+  .role-authenticated.path-user #navbar_km .region-menu { -moz-justify-content: flex-end; -ms-justify-content: flex-end; -webkit-box-pack: end; -ms-flex-pack: end; justify-content: flex-end; }
+  .role-authenticated.path-user #navbar_km .navbar-brand { display: none; }
+  .role-authenticated.path-user #navbar_km .menu--account a { color: #FFFFFF; } }
+
+.navbar-brand { padding: 0; }
+
+.logo #logo-img { min-width: 120px; height: auto; }
+
+.logo-white { display: none !important; }
+
+.logo-interiores { width: 200px; height: auto; display: block; margin: auto; padding-top: 20px; margin-bottom: 40px; background-color: #FFFFFF; -webkit-box-shadow: rgba(50, 50, 93, 0.25) 0px 13px 27px -5px, rgba(0, 0, 0, 0.3) 0px 8px 16px -8px; box-shadow: rgba(50, 50, 93, 0.25) 0px 13px 27px -5px, rgba(0, 0, 0, 0.3) 0px 8px 16px -8px; padding: 10px; -webkit-border-bottom-right-radius: 25px; -webkit-border-bottom-left-radius: 25px; -moz-border-radius-bottomright: 25px; -moz-border-radius-bottomleft: 25px; border-bottom-right-radius: 25px; border-bottom-left-radius: 25px; }
+
+.path-webform #navbar_km, .ejecutivo-contrato #navbar_km { background-color: #FFFFFF; }
+
+.path-webform #navbar_km .nav-link, .ejecutivo-contrato #navbar_km .nav-link { color: #0033A1; }
+
+.path-webform .logo-color, .ejecutivo-contrato .logo-color { display: block !important; }
+
+.path-webform .logo-white, .ejecutivo-contrato .logo-white { display: none !important; }
+
+@media screen and (min-width: 768px) { .role-authenticated #navbar_km { background-color: transparent; -webkit-box-shadow: none; box-shadow: none; }
+  .role-authenticated #navbar_km .navbar-brand { display: none !important; }
+  .role-authenticated #navbar_km .menu--account a { color: #FFFFFF; } }
+
+.menu-interiores { background-color: #FFFFFF; padding-bottom: 80px; }
+
+.region-menu { display: -webkit-box; display: -moz-flex; display: -ms-flexbox; display: flex; -moz-justify-content: space-between; -ms-justify-content: space-between; -webkit-box-pack: justify; justify-content: space-between; -ms-flex-pack: space-between; width: 100%; }
+
+.menu-interiores .region-menu { -moz-justify-content: center; -ms-justify-content: center; -webkit-box-pack: center; justify-content: center; -ms-flex-pack: center; text-align: center; padding-top: 40px; }
+
+footer { background-color: #0033A1; color: #FFFFFF; text-align: center; position: relative; bottom: 0; width: 100%; padding: 10px 20px; font-size: 14px; }
+
+footer #block-socialmedialinks { border-top: 1px solid #e8e5e5; margin: 56px 24px 24px; padding-top: 24px; }
+
+.section-theme .row { min-height: 600px; }
+
+@media screen and (max-width: 767px) { .section-theme .row { min-height: 400px; } }
+
+.section-separador { height: 400px !important; }
+
+.section-separador .imagine-background { margin: -300px 0px !important; }
+
+.section-separador .imagine-layer { left: 45% !important; top: 50% !important; }
+
+@media screen and (max-width: 1199px) { .section-separador .imagine-background { margin: -200px 0px !important; } }
+
+@media screen and (max-width: 991px) { .section-separador { height: 280px !important; }
+  .section-separador .imagine-background { margin: -100px 0px !important; -webkit-transform: scale(1.5) !important; transform: scale(1.5) !important; } }
+
+@media screen and (max-width: 767px) { .section-separador { height: 180px !important; }
+  .section-separador .imagine-background { margin: -50px 0px !important; } }

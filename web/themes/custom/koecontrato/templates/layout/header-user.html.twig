@@ -1,0 +1,17 @@
+<header id="site-header" class="header-user">
+  {% block head %}
+  {# Header #}
+  <div id="header-wrap" class="menu-principal text-uppercase">
+
+    <nav id="navbar_km" class="navbar">
+
+      {# Right #}
+      {% if page.menuuser %}
+        {{ page.menuuser }}
+      {% endif %}
+
+    </nav>
+
+  </div>
+  {% endblock %}
+</header>

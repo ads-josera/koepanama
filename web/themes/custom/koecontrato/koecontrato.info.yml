@@ -1,0 +1,27 @@
+name: KOE Contrato
+type: theme
+base theme: mediteran
+description: 'Contrato KOE Theme Drupal 10x'
+core_version_requirement: ^9 || ^10
+screenshot: screenshot.png
+libraries:
+  - koecontrato/global-styling
+logo: logo.svg
+
+stylesheets-remove:
+  - core/assets/vendor/normalize-css/normalize.css
+  - core/modules/system/css/system.module.css
+  - core/modules/system/css/system.theme.css
+  - core/modules/views/css/views.module.css
+
+regions:
+  #header
+  logo: 'Logo'
+  menuuser: 'Menu User'
+  menu: 'Menu'
+  #system
+  system: 'System'
+  #content
+  content: 'Main content'
+  #footer
+  footer: 'Footer'

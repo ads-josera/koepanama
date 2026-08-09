@@ -1,0 +1,5 @@
+name: Ks
+type: module
+description: Koe Support Module
+package: Koe
+core_version_requirement: ^9 || ^10

@@ -1,0 +1,29 @@
+# Custom module library for general purposes.
+ks:
+  version: 1.0.35
+  js:
+    js/ks.js: {}
+    https://cdn.jsdelivr.net/npm/intl-tel-input/build/js/intlTelInput.min.js: {type: external, minified: true}
+  css:
+    component:
+      css/ks.css: {}
+      https://cdn.jsdelivr.net/npm/intl-tel-input/build/css/intlTelInput.min.css: {type: external, minified: true}
+  dependencies:
+    - core/drupal
+    - core/jquery
+    - core/drupalSettings
+    - core/once
+
+iti-fix:
+  version: 1.0.04
+  js:
+    js/iti-fix.js: {}
+    https://cdn.jsdelivr.net/npm/intl-tel-input/build/js/intlTelInput.min.js: {type: external, minified: true}
+  css:
+    component:
+      https://cdn.jsdelivr.net/npm/intl-tel-input/build/css/intlTelInput.min.css: {type: external, minified: true}
+  dependencies:
+    - core/drupal
+    - core/jquery
+    - core/drupalSettings
+    - core/once

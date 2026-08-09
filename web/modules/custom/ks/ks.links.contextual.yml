@@ -1,0 +1,10 @@
+entity.contrato.edit_form:
+  route_name: entity.contrato.edit_form
+  group: contrato
+  title: Edit
+
+entity.contrato.delete_form:
+  route_name: entity.contrato.delete_form
+  group: contrato
+  title: Delete
+  weight: 10

@@ -1,0 +1,51 @@
+/* Import */
+*[data-drupal-selector="edit-import"] *[data-drupal-selector="edit-warning"]{
+	font-weight: bold;
+}
+*[data-drupal-selector="edit-import"] input[type="submit"], details[data-filter-add="true"] input[type="submit"]{
+	margin-left: 0px;
+}
+div.progress.ajax-progress.ajax-progress-bar{
+	display: block;
+}
+
+div[class*="form-item-cat"]{
+	width: 166px;
+}
+
+details[data-filter-add="true"] .form-item{
+	/*display:block;*/
+}
+details[data-filter-add="true"] p{
+	margin: 0.5em 0;
+	font-weight: bold;
+}
+details[data-filter-add="true"] hr{
+	margin: 5px 0px 10px 0px;
+	width: 440px; 
+}
+
+fieldset[data-filter-galeria="true"]{
+	padding: 0px 10px !important;
+}
+fieldset[data-filter-galeria="true"].invisible{
+	display: none;
+}
+fieldset[data-filter-galeria="true"] fieldset.form-item{
+	display: inline-block;
+	text-align: center;	
+}
+fieldset[data-filter-galeria="true"] fieldset.form-item > legend{
+	position:relative;
+}
+fieldset[data-filter-galeria="true"] fieldset.form-item div.sf_color_item{
+	display: block;
+	margin: 0px auto;
+	width: 150px;
+	height: 150px;
+}
+
+div[id^="edit-contrato-fecha"] label{
+	display: none;
+}
+

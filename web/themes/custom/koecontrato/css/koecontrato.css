@@ -1,0 +1,59 @@
+.km-formulario.km-contrato .form-item-condiciones-material:first-child {
+	display: none !important;
+}
+/*BOTON FLOTANTE UPDATE DRUPAL 10*/
+@media screen and (min-width: 640px) {
+  .form-actions {
+      padding: inherit;
+      position: relative;
+      left: inherit;
+      bottom: inherit;
+      border-top: indianred;
+      width: inherit;
+      z-index: inherit;
+      background-color: inherit;
+  }
+}
+.button, .views-remove-link, .views-remove-group-link,
+.form-autocomplete, .form-text, .form-tel, .form-email, .form-url, .form-search, .form-number, .form-color, .form-file, .form-date, .form-time, .form-textarea, .form-select
+{
+  min-width: inherit;
+}
+
+.user-login-form .form-actions,
+.webform-submission-pago-online-add-form .form-actions,
+.webform-submission-pago-online-add-form input.form-submit,
+.form-item-po-pago select {
+  width: 100%;
+}
+.webform-pago_online .km-formulario .form-item input:focus,
+.node-webform.node-3 .km-formulario .form-item input:focus,
+.form-item-po-pago select:focus,
+.webform-pago_online .km-formulario .form-item input:active,
+.node-webform.node-3 .km-formulario .form-item input:active,
+.form-item-po-pago select:active {
+  background-color: transparent;
+}
+.form--inline {
+  display: inline;
+}
+.km-formulario .form-type-date label {
+  margin-bottom: 5px;
+}
+
+.form-item-comprador-telefono .iti,
+.form-item-comprador-celular .iti,
+.form-item-comprador-empresa-telefono .iti {
+  width: 100%;
+}
+.view-contratos .form--inline .form-actions,
+.view-bitacora .form--inline .form-actions {
+  margin-top: 0;
+}
+.view-contratos .form--inline .form-type-textfield,
+.view-bitacora .form--inline .form-type-textfield {
+  max-width: inherit;
+}
+.view-contratos input[value="Actualizar"], .view-bitacora input[value="Actualizar"] {
+  width: 65px !important;
+}
