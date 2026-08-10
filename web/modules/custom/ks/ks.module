@@ -28,8 +28,9 @@
  use setasign\Fpdi\Fpdi;
  
  use Ddeboer\Imap\Server;
- use Ddeboer\Imap\SearchExpression;
- use Ddeboer\Imap\Search\Text\Subject;
+use Ddeboer\Imap\SearchExpression;
+use Ddeboer\Imap\Search\Date\Since;
+use Ddeboer\Imap\Search\Text\Subject;
  use Ddeboer\Imap\Search\Text\Body;
  use Ddeboer\Imap\Search\Flag\Unseen;
  
@@ -919,12 +920,143 @@ function ks_webform_element_alter(array &$element, \Drupal\Core\Form\FormStateIn
     
     //Correo de aceptación
     Drupal::logger('ks')->notice('Ejecutando ks_correo_procesar...');
-    ks_correo_procesar();
+    ks_correo_procesar_v2();
+  }
+
+  /**
+   * Builds the IMAP query for acceptance declarations.
+   */
+  function ks_correo_busqueda_aceptacion(?\DateTimeInterface $since = null): SearchExpression {
+    $search = new SearchExpression();
+    $search->addCondition(new Unseen());
+    $search->addCondition(new Subject('Aceptación'));
+    $search->addCondition(new Subject('Contrato'));
+    $search->addCondition(new Subject('ON-'));
+    $search->addCondition(new Body('Yo,'));
+    if ($since) {
+      $search->addCondition(new Since($since));
+    }
+
+    return $search;
+  }
+
+  /**
+   * Processes acceptance declarations from INBOX and Gmail Spam from the
+   * configured activation date onward.
+   */
+  function ks_correo_procesar_v2(): void {
+    $username = getenv('KS_ACCEPTANCE_IMAP_USER');
+    $password = getenv('KS_ACCEPTANCE_IMAP_PASSWORD');
+    if (!$username || !$password) {
+      Drupal::logger('ks')->error('Acceptance IMAP credentials are not configured.');
+      return;
+    }
+
+    try {
+      $server = new Server('imap.gmail.com', '993', '/imap/ssl/novalidate-cert');
+      $connection = $server->authenticate($username, $password);
+    }
+    catch (\Throwable $exception) {
+      Drupal::logger('ks')->error('Unable to connect to the acceptance mailbox: @message', ['@message' => $exception->getMessage()]);
+      return;
+    }
+
+    $processing_since = getenv('KS_ACCEPTANCE_PROCESSING_SINCE');
+    if (!$processing_since) {
+      Drupal::logger('ks')->error('Acceptance IMAP processing start date is not configured.');
+      return;
+    }
+    try {
+      $since = new \DateTimeImmutable($processing_since, new \DateTimeZone('America/Mexico_City'));
+    }
+    catch (\Exception $exception) {
+      Drupal::logger('ks')->error('Invalid KS_ACCEPTANCE_PROCESSING_SINCE value: @message', ['@message' => $exception->getMessage()]);
+      return;
+    }
+    $mailboxes = [
+      ['name' => 'INBOX', 'since' => $since],
+      ['name' => getenv('KS_ACCEPTANCE_SPAM_MAILBOX') ?: '[Gmail]/Spam', 'since' => $since],
+    ];
+
+    $processed_store = Drupal::keyValue('ks.acceptance_mail_processed');
+    $error_store = Drupal::keyValue('ks.acceptance_mail_errors');
+
+    foreach ($mailboxes as $mailbox_config) {
+      try {
+        $mailbox = $connection->getMailbox($mailbox_config['name']);
+        $messages = $mailbox->getMessages(ks_correo_busqueda_aceptacion($mailbox_config['since']));
+      }
+      catch (\Throwable $exception) {
+        Drupal::logger('ks')->error('Unable to query acceptance mailbox @mailbox: @message', ['@mailbox' => $mailbox_config['name'], '@message' => $exception->getMessage()]);
+        continue;
+      }
+
+      foreach ($messages as $message) {
+        $message_key = hash('sha256', $mailbox_config['name'] . ':' . $message->getNumber());
+        if ($processed_store->has($message_key)) {
+          $message->markAsSeen();
+          continue;
+        }
+
+        $error = '';
+        try {
+          $subject = $message->getSubject();
+          if (!preg_match('/ON\D+([\d]+)/im', $subject, $matches)) {
+            throw new \RuntimeException('El formato del folio no es válido.');
+          }
+
+          $folio = (int) $matches[1];
+          $contrato = Folio::koe_get_contrato($folio);
+          if (!$contrato) {
+            throw new \RuntimeException('El folio no es válido.');
+          }
+          if (!in_array((int) $contrato->field_status->value, [1, 8, 6], true)) {
+            throw new \RuntimeException('El contrato no admite una aceptación en su estatus actual.');
+          }
+
+          $body = $message->getBodyText();
+          if (!preg_match('/Yo,\W+([^,]+)/im', $body, $matches)) {
+            throw new \RuntimeException('No se detectó el nombre del aceptante.');
+          }
+          $data = ['folio' => $folio, 'comprador_nombre' => trim($matches[1])];
+          if (!preg_match('/pasaporte\W+([^,]+)/im', $body, $matches)) {
+            throw new \RuntimeException('No se detectó el documento del aceptante.');
+          }
+          $data['comprador_rfc'] = trim($matches[1]);
+          if ($contrato->field_precursor->value) {
+            $data['precursor'] = $contrato->field_precursor->value;
+          }
+
+          $webform = Webform::load('aceptacion');
+          $values = ['webform_id' => $webform->id(), 'data' => $data];
+          $errors = WebformSubmissionForm::validateFormValues($values);
+          if ($errors) {
+            throw new \RuntimeException('El correo no cumple la validación del formulario de aceptación.');
+          }
+
+          WebformSubmissionForm::submitFormValues($values);
+          $processed_store->set($message_key, ['folio' => $folio, 'processed' => time()]);
+          $message->markAsSeen();
+        }
+        catch (\Throwable $exception) {
+          $error = $exception->getMessage();
+          Drupal::logger('ks')->warning('Acceptance email remains unread for retry. Mailbox: @mailbox. Error: @message', ['@mailbox' => $mailbox_config['name'], '@message' => $error]);
+        }
+
+        if ($error && !$error_store->has($message_key)) {
+          $error_store->set($message_key, ['error' => $error, 'reported' => time()]);
+          $mailManager = Drupal::service('plugin.manager.mail');
+          $mailManager->mail('ks', 'ks_correo_procesar', 'koemasterweb@gmail.com,sandra.rincon@koe.la', Drupal::languageManager()->getDefaultLanguage()->getId(), ['body' => 'El sistema no pudo procesar una aceptación: ' . $error, 'subject' => 'Error procesando aceptación por correo'], null, true);
+        }
+      }
+    }
+
+    $connection->expunge();
   }
   
   function ks_correo_procesar(){
-    $username = 'aceptacionkoe@gmail.com';
-    $password = 'qhez kbsw btvy rwpv';
+    $username = getenv("KS_ACCEPTANCE_IMAP_USER");
+    $password = getenv("KS_ACCEPTANCE_IMAP_PASSWORD");
     $server = new Server('imap.gmail.com', '993', '/imap/ssl/novalidate-cert');
     $connection = $server->authenticate($username, $password);    
     Drupal::logger('ks')->notice(print_r($connection, true));
